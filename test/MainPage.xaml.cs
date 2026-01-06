@@ -1,23 +1,22 @@
-﻿namespace test;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Plugin.BLE;
+using test.Services;
+using test.ViewModels;
+
+namespace test;
 
 public partial class MainPage : ContentPage
 {
-	int count = 0;
+	private readonly MainPageViewModel _viewModel;
 
 	public MainPage()
 	{
 		InitializeComponent();
+
+		var services = App.Services;
+		var connectionService = services?.GetService<DeviceConnectionService>() ?? new DeviceConnectionService();
+		_viewModel = new MainPageViewModel(CrossBluetoothLE.Current.Adapter, connectionService);
+		BindingContext = _viewModel;
 	}
 
-	private void OnCounterClicked(object? sender, EventArgs e)
-	{
-		count++;
-
-		if (count == 1)
-			CounterBtn.Text = $"Clicked {count} time";
-		else
-			CounterBtn.Text = $"Clicked {count} times";
-
-		SemanticScreenReader.Announce(CounterBtn.Text);
-	}
 }

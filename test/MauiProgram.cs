@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using test.Services;
 
 namespace test;
 
@@ -14,6 +16,8 @@ public static class MauiProgram
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
 			});
+
+		builder.Services.AddSingleton<DeviceConnectionService>();
 
 #if DEBUG
 		builder.Logging.AddDebug();

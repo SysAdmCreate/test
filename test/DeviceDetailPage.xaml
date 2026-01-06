@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="test.DeviceDetailPage"
+             Title="Пристрій">
+    <ScrollView>
+        <VerticalStackLayout Padding="24,20" Spacing="12">
+            <Label
+                Text="Під'єднаний пристрій"
+                Style="{StaticResource Headline}"
+                SemanticProperties.HeadingLevel="Level1" />
+
+            <Label
+                Text="{Binding Name}"
+                FontAttributes="Bold"
+                FontSize="18" />
+
+            <Label
+                Text="{Binding Id}"
+                FontSize="12"
+                TextColor="#6B6B6B" />
+
+            <Label
+                Text="{Binding ConnectionState}" />
+
+            <Label
+                Text="{Binding ConnectedAtText}"
+                FontSize="12"
+                TextColor="#6B6B6B" />
+
+            <HorizontalStackLayout Spacing="12" VerticalOptions="Center">
+                <ActivityIndicator
+                    IsRunning="{Binding IsConnecting}"
+                    IsVisible="{Binding IsConnecting}" />
+                <Label
+                    Text="Підключення..."
+                    IsVisible="{Binding IsConnecting}" />
+            </HorizontalStackLayout>
+
+            <Button
+                Text="Від'єднатися"
+                Command="{Binding DisconnectCommand}"
+                IsEnabled="{Binding IsConnected}" />
+
+            <Label
+                Text="{Binding ErrorText}"
+                TextColor="#B00020"
+                IsVisible="{Binding HasError}" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
