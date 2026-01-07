@@ -57,6 +57,14 @@
                 IsEnabled="{Binding CanSend}" />
 
             <Label
+                Text="Статистика передачі"
+                FontAttributes="Bold" />
+
+            <Entry
+                Text="{Binding StatsText}"
+                IsReadOnly="True" />
+
+            <Label
                 Text="{Binding ErrorText}"
                 TextColor="#B00020"
                 IsVisible="{Binding HasError}" />

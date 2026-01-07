@@ -6,6 +6,26 @@ static const char* kDeviceName = "TEST";
 static NimBLEUUID kServiceUuid("9b2a1c50-4f66-4c3e-9a6b-6f0c6b2f3a01");
 static NimBLEUUID kCharUuid("9b2a1c50-4f66-4c3e-9a6b-6f0c6b2f3a02");
 
+static NimBLEServer* g_server = nullptr;
+static NimBLECharacteristic* g_characteristic = nullptr;
+
+static uint64_t g_rx_bytes = 0;
+static uint64_t g_tx_bytes = 0;
+static uint64_t g_last_report_rx_bytes = 0;
+static uint64_t g_last_report_tx_bytes = 0;
+static uint32_t g_last_report_ms = 0;
+
+static void SendNotification(const std::string& payload) {
+  if (!g_server || g_server->getConnectedCount() == 0 || !g_characteristic) {
+    Serial.println("No BLE client connected.");
+    return;
+  }
+
+  g_characteristic->setValue(reinterpret_cast<const uint8_t*>(payload.data()), payload.size());
+  g_characteristic->notify();
+  g_tx_bytes += static_cast<uint64_t>(payload.size());
+}
+
 static const uint8_t kLedApt1Pin = 9;
 static const uint8_t kLedApt2Pin = 10;
 static const uint8_t kLedApt3Pin = 20;
@@ -98,7 +118,9 @@ class CharacteristicCallbacks : public NimBLECharacteristicCallbacks {
 
   void onWrite(NimBLECharacteristic* characteristic, NimBLEConnInfo& connInfo) override {
     (void)connInfo;
-    std::string value = TrimAscii(characteristic->getValue());
+    std::string raw = characteristic->getValue();
+    g_rx_bytes += raw.size();
+    std::string value = TrimAscii(raw);
     Serial.printf("Characteristic write: %s\n", value.c_str());
 
     if (value == "CALL:1") {
@@ -132,16 +154,16 @@ void setup() {
   NimBLEDevice::init(kDeviceName);
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
-  NimBLEServer* server = NimBLEDevice::createServer();
-  server->setCallbacks(new ServerCallbacks());
+  g_server = NimBLEDevice::createServer();
+  g_server->setCallbacks(new ServerCallbacks());
 
-  NimBLEService* service = server->createService(kServiceUuid);
-  NimBLECharacteristic* characteristic = service->createCharacteristic(
+  NimBLEService* service = g_server->createService(kServiceUuid);
+  g_characteristic = service->createCharacteristic(
       kCharUuid,
-      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
+      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
 
-  characteristic->setValue("hello");
-  characteristic->setCallbacks(new CharacteristicCallbacks());
+  g_characteristic->setValue("hello");
+  g_characteristic->setCallbacks(new CharacteristicCallbacks());
   service->start();
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
@@ -159,5 +181,33 @@ void setup() {
 
 void loop() {
   UpdateBlinkTasks();
+  uint32_t now = millis();
+
+  if (Serial.available() > 0) {
+    String input = Serial.readStringUntil('\n');
+    input.trim();
+    if (input.length() > 0) {
+      std::string payload(input.c_str());
+      SendNotification(payload);
+      Serial.printf("Sent notify: %s\n", payload.c_str());
+    }
+  }
+
+  if (now - g_last_report_ms >= 1000) {
+    float seconds = (now - g_last_report_ms) / 1000.0f;
+    g_last_report_ms = now;
+    uint64_t rx_delta = g_rx_bytes - g_last_report_rx_bytes;
+    uint64_t tx_delta = g_tx_bytes - g_last_report_tx_bytes;
+    g_last_report_rx_bytes = g_rx_bytes;
+    g_last_report_tx_bytes = g_tx_bytes;
+    float rx_rate = seconds > 0.0f ? static_cast<float>(rx_delta) / seconds : 0.0f;
+    float tx_rate = seconds > 0.0f ? static_cast<float>(tx_delta) / seconds : 0.0f;
+    Serial.printf("RX: %llu B (%.1f B/s), TX: %llu B (%.1f B/s)\n",
+                  static_cast<unsigned long long>(g_rx_bytes),
+                  rx_rate,
+                  static_cast<unsigned long long>(g_tx_bytes),
+                  tx_rate);
+  }
+
   delay(10);
 }

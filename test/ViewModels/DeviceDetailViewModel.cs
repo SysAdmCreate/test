@@ -14,6 +14,7 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 	private string _connectedAt = string.Empty;
 	private string _errorText = string.Empty;
 	private string _commandText = string.Empty;
+	private string _statsText = string.Empty;
 	private bool _hasError;
 	private bool _isConnected;
 	private bool _isConnecting;
@@ -63,6 +64,12 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 		}
 	}
 
+	public string StatsText
+	{
+		get => _statsText;
+		private set => SetField(ref _statsText, value);
+	}
+
 	public bool CanSend => IsConnected && !IsConnecting && !string.IsNullOrWhiteSpace(CommandText);
 
 	public bool HasError
@@ -95,6 +102,7 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 	{
 		_connectionService = connectionService;
 		_connectionService.ConnectionStateChanged += OnConnectionStateChanged;
+		_connectionService.StatsChanged += OnStatsChanged;
 		DisconnectCommand = new Command(async () => await _connectionService.DisconnectAsync());
 		SendCommandCommand = new Command(async () => await SendCommandAsync());
 		Refresh();
@@ -103,6 +111,7 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 	public void Dispose()
 	{
 		_connectionService.ConnectionStateChanged -= OnConnectionStateChanged;
+		_connectionService.StatsChanged -= OnStatsChanged;
 	}
 
 	public void Refresh()
@@ -110,6 +119,7 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 		var device = _connectionService.ConnectedDevice;
 		IsConnected = _connectionService.IsConnected;
 		IsConnecting = _connectionService.IsConnecting;
+		StatsText = _connectionService.StatsText;
 		if (device is null)
 		{
 			Name = "Немає підключення";
@@ -132,6 +142,11 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 	private void OnConnectionStateChanged(object? sender, EventArgs e)
 	{
 		Refresh();
+	}
+
+	private void OnStatsChanged(object? sender, EventArgs e)
+	{
+		StatsText = _connectionService.StatsText;
 	}
 
 	private void SetError(string? message)

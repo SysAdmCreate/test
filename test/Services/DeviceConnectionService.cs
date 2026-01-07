@@ -18,14 +18,18 @@ public sealed class DeviceConnectionService
 	private bool _manualDisconnect;
 	private bool _isConnecting;
 	private ICharacteristic? _commandCharacteristic;
+	private bool _isNotifying;
+	private readonly ThroughputTracker _throughput = new();
 
 	public event EventHandler? ConnectionStateChanged;
+	public event EventHandler? StatsChanged;
 
 	public IDevice? ConnectedDevice { get; private set; }
 	public DateTime? ConnectedAtUtc { get; private set; }
 	public string? LastError { get; private set; }
 	public bool IsConnected => ConnectedDevice is not null;
 	public bool IsConnecting => _isConnecting;
+	public string StatsText => _throughput.GetSummary();
 
 	public async Task<bool> ConnectAndMaintainAsync(IAdapter adapter, IDevice device)
 	{
@@ -65,6 +69,8 @@ public sealed class DeviceConnectionService
 		if (adapter is not null)
 			adapter.DeviceDisconnected -= OnDeviceDisconnected;
 
+		await StopNotificationsAsync();
+
 		if (device is not null && adapter is not null)
 		{
 			try
@@ -81,6 +87,8 @@ public sealed class DeviceConnectionService
 		ConnectedAtUtc = null;
 		LastError = null;
 		_commandCharacteristic = null;
+		_isNotifying = false;
+		_throughput.Reset();
 		OnConnectionStateChanged();
 	}
 
@@ -95,6 +103,9 @@ public sealed class DeviceConnectionService
 			ConnectedDevice = device;
 			ConnectedAtUtc = DateTime.UtcNow;
 			_commandCharacteristic = null;
+			_isNotifying = false;
+			_throughput.Reset();
+			await GetCommandCharacteristicAsync(device);
 			_isConnecting = false;
 			OnConnectionStateChanged();
 			return true;
@@ -105,6 +116,7 @@ public sealed class DeviceConnectionService
 			ConnectedAtUtc = null;
 			LastError = ex.Message;
 			_isConnecting = false;
+			_throughput.Reset();
 			OnConnectionStateChanged();
 			return false;
 		}
@@ -153,7 +165,11 @@ public sealed class DeviceConnectionService
 		{
 			ConnectedDevice = null;
 			ConnectedAtUtc = null;
+			if (_commandCharacteristic is not null)
+				_commandCharacteristic.ValueUpdated -= OnCharacteristicValueUpdated;
 			_commandCharacteristic = null;
+			_isNotifying = false;
+			_throughput.Reset();
 			OnConnectionStateChanged();
 			StartReconnectLoop(e.Device);
 		}
@@ -200,6 +216,8 @@ public sealed class DeviceConnectionService
 
 			var payload = Encoding.UTF8.GetBytes(command.Trim());
 			await characteristic.WriteAsync(payload);
+			_throughput.AddTx(payload.Length);
+			OnStatsChanged();
 			LastError = null;
 			OnConnectionStateChanged();
 			return true;
@@ -222,11 +240,99 @@ public sealed class DeviceConnectionService
 			return null;
 
 		_commandCharacteristic = await service.GetCharacteristicAsync(s_commandCharacteristicId);
+		if (_commandCharacteristic is not null)
+			await EnsureNotificationsAsync(_commandCharacteristic);
 		return _commandCharacteristic;
+	}
+
+	private async Task EnsureNotificationsAsync(ICharacteristic characteristic)
+	{
+		if (_isNotifying || !characteristic.CanUpdate)
+			return;
+
+		characteristic.ValueUpdated += OnCharacteristicValueUpdated;
+		await characteristic.StartUpdatesAsync();
+		_isNotifying = true;
+	}
+
+	private async Task StopNotificationsAsync()
+	{
+		if (_commandCharacteristic is null)
+			return;
+
+		if (_isNotifying && _commandCharacteristic.CanUpdate)
+		{
+			_commandCharacteristic.ValueUpdated -= OnCharacteristicValueUpdated;
+			await _commandCharacteristic.StopUpdatesAsync();
+		}
+
+		_isNotifying = false;
+	}
+
+	private void OnCharacteristicValueUpdated(object? sender, CharacteristicUpdatedEventArgs e)
+	{
+		var value = e.Characteristic?.Value;
+		if (value is null)
+			return;
+
+		_throughput.AddRx(value.Length);
+		OnStatsChanged();
 	}
 
 	private void OnConnectionStateChanged()
 	{
 		ConnectionStateChanged?.Invoke(this, EventArgs.Empty);
+	}
+
+	private void OnStatsChanged()
+	{
+		StatsChanged?.Invoke(this, EventArgs.Empty);
+	}
+
+	private sealed class ThroughputTracker
+	{
+		private long _totalTxBytes;
+		private long _totalRxBytes;
+		private DateTime _startUtc;
+
+		public ThroughputTracker()
+		{
+			Reset();
+		}
+
+		public void Reset()
+		{
+			_totalTxBytes = 0;
+			_totalRxBytes = 0;
+			_startUtc = DateTime.UtcNow;
+		}
+
+		public void AddTx(int bytes)
+		{
+			if (bytes <= 0)
+				return;
+
+			_totalTxBytes += bytes;
+		}
+
+		public void AddRx(int bytes)
+		{
+			if (bytes <= 0)
+				return;
+
+			_totalRxBytes += bytes;
+		}
+
+		public string GetSummary()
+		{
+			var elapsedSeconds = (DateTime.UtcNow - _startUtc).TotalSeconds;
+			if (elapsedSeconds <= 0.01)
+				elapsedSeconds = 0.01;
+
+			var txRate = _totalTxBytes / elapsedSeconds;
+			var rxRate = _totalRxBytes / elapsedSeconds;
+
+			return $"TX: {_totalTxBytes} B ({txRate:F1} B/s) | RX: {_totalRxBytes} B ({rxRate:F1} B/s)";
+		}
 	}
 }
