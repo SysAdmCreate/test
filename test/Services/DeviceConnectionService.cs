@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text;
 using Plugin.BLE.Abstractions.Contracts;
 using Plugin.BLE.Abstractions.EventArgs;
 
@@ -8,11 +9,15 @@ namespace test.Services;
 
 public sealed class DeviceConnectionService
 {
+	private static readonly Guid s_serviceId = Guid.Parse("9b2a1c50-4f66-4c3e-9a6b-6f0c6b2f3a01");
+	private static readonly Guid s_commandCharacteristicId = Guid.Parse("9b2a1c50-4f66-4c3e-9a6b-6f0c6b2f3a02");
+
 	private readonly object _sync = new();
 	private CancellationTokenSource? _reconnectCts;
 	private IAdapter? _adapter;
 	private bool _manualDisconnect;
 	private bool _isConnecting;
+	private ICharacteristic? _commandCharacteristic;
 
 	public event EventHandler? ConnectionStateChanged;
 
@@ -75,6 +80,7 @@ public sealed class DeviceConnectionService
 		ConnectedDevice = null;
 		ConnectedAtUtc = null;
 		LastError = null;
+		_commandCharacteristic = null;
 		OnConnectionStateChanged();
 	}
 
@@ -88,6 +94,7 @@ public sealed class DeviceConnectionService
 			await _adapter!.ConnectToDeviceAsync(device);
 			ConnectedDevice = device;
 			ConnectedAtUtc = DateTime.UtcNow;
+			_commandCharacteristic = null;
 			_isConnecting = false;
 			OnConnectionStateChanged();
 			return true;
@@ -146,9 +153,76 @@ public sealed class DeviceConnectionService
 		{
 			ConnectedDevice = null;
 			ConnectedAtUtc = null;
+			_commandCharacteristic = null;
 			OnConnectionStateChanged();
 			StartReconnectLoop(e.Device);
 		}
+	}
+
+	public async Task<bool> SendCommandAsync(string command)
+	{
+		if (string.IsNullOrWhiteSpace(command))
+		{
+			LastError = "Команда порожня.";
+			OnConnectionStateChanged();
+			return false;
+		}
+
+		IDevice? device;
+		lock (_sync)
+		{
+			device = ConnectedDevice;
+		}
+
+		if (device is null)
+		{
+			LastError = "Немає підключення.";
+			OnConnectionStateChanged();
+			return false;
+		}
+
+		try
+		{
+			var characteristic = await GetCommandCharacteristicAsync(device);
+			if (characteristic is null)
+			{
+				LastError = "BLE характеристика не знайдена.";
+				OnConnectionStateChanged();
+				return false;
+			}
+
+			if (!characteristic.CanWrite)
+			{
+				LastError = "Характеристика не підтримує запис.";
+				OnConnectionStateChanged();
+				return false;
+			}
+
+			var payload = Encoding.UTF8.GetBytes(command.Trim());
+			await characteristic.WriteAsync(payload);
+			LastError = null;
+			OnConnectionStateChanged();
+			return true;
+		}
+		catch (Exception ex)
+		{
+			LastError = ex.Message;
+			OnConnectionStateChanged();
+			return false;
+		}
+	}
+
+	private async Task<ICharacteristic?> GetCommandCharacteristicAsync(IDevice device)
+	{
+		if (_commandCharacteristic is not null)
+			return _commandCharacteristic;
+
+		var service = await device.GetServiceAsync(s_serviceId);
+		if (service is null)
+			return null;
+
+		_commandCharacteristic = await service.GetCharacteristicAsync(s_commandCharacteristicId);
+		return _commandCharacteristic;
 	}
 
 	private void OnConnectionStateChanged()

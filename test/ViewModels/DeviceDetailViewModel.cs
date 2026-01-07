@@ -13,6 +13,7 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 	private string _state = "Невідомо";
 	private string _connectedAt = string.Empty;
 	private string _errorText = string.Empty;
+	private string _commandText = string.Empty;
 	private bool _hasError;
 	private bool _isConnected;
 	private bool _isConnecting;
@@ -20,6 +21,7 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 	public event PropertyChangedEventHandler? PropertyChanged;
 
 	public Command DisconnectCommand { get; }
+	public Command SendCommandCommand { get; }
 
 	public string Name
 	{
@@ -51,6 +53,18 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 		private set => SetField(ref _errorText, value);
 	}
 
+	public string CommandText
+	{
+		get => _commandText;
+		set
+		{
+			if (SetField(ref _commandText, value))
+				OnPropertyChanged(nameof(CanSend));
+		}
+	}
+
+	public bool CanSend => IsConnected && !IsConnecting && !string.IsNullOrWhiteSpace(CommandText);
+
 	public bool HasError
 	{
 		get => _hasError;
@@ -60,13 +74,21 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 	public bool IsConnected
 	{
 		get => _isConnected;
-		private set => SetField(ref _isConnected, value);
+		private set
+		{
+			if (SetField(ref _isConnected, value))
+				OnPropertyChanged(nameof(CanSend));
+		}
 	}
 
 	public bool IsConnecting
 	{
 		get => _isConnecting;
-		private set => SetField(ref _isConnecting, value);
+		private set
+		{
+			if (SetField(ref _isConnecting, value))
+				OnPropertyChanged(nameof(CanSend));
+		}
 	}
 
 	public DeviceDetailViewModel(DeviceConnectionService connectionService)
@@ -74,6 +96,7 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 		_connectionService = connectionService;
 		_connectionService.ConnectionStateChanged += OnConnectionStateChanged;
 		DisconnectCommand = new Command(async () => await _connectionService.DisconnectAsync());
+		SendCommandCommand = new Command(async () => await SendCommandAsync());
 		Refresh();
 	}
 
@@ -124,12 +147,31 @@ public sealed class DeviceDetailViewModel : INotifyPropertyChanged, IDisposable
 		HasError = true;
 	}
 
-	private void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+	private async Task SendCommandAsync()
 	{
-		if (EqualityComparer<T>.Default.Equals(field, value))
+		var command = CommandText;
+		if (string.IsNullOrWhiteSpace(command))
 			return;
 
+		var sent = await _connectionService.SendCommandAsync(command);
+		Refresh();
+
+		if (sent)
+			CommandText = string.Empty;
+	}
+
+	private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+	{
+		if (EqualityComparer<T>.Default.Equals(field, value))
+			return false;
+
 		field = value;
+		PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+		return true;
+	}
+
+	private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+	{
 		PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 	}
 }

@@ -43,6 +43,20 @@
                 IsEnabled="{Binding IsConnected}" />
 
             <Label
+                Text="Команда для пристрою"
+                FontAttributes="Bold" />
+
+            <Entry
+                Text="{Binding CommandText}"
+                Placeholder="CALL:1 або DOOR_OPEN"
+                ClearButtonVisibility="WhileEditing" />
+
+            <Button
+                Text="Надіслати"
+                Command="{Binding SendCommandCommand}"
+                IsEnabled="{Binding CanSend}" />
+
+            <Label
                 Text="{Binding ErrorText}"
                 TextColor="#B00020"
                 IsVisible="{Binding HasError}" />
